@@ -121,7 +121,7 @@ Ready to see how this translates to code? Let's build our first producer.
 Let's start fresh with a new Phoenix project. Open your terminal and run:
 
 ```
-mix phx.new job_processor --no-dashboard --no-mailer
+mix phx.new job_processor --live
 cd job_processor
 ```
 
