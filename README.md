@@ -1,5 +1,17 @@
 # Writing A Job Runner (In Elixir)
 
+## Who is this for?
+Are you curious?
+
+If you know a little bit of Elixir, this is a great "levelling up" piece.
+
+If you're seasoned, it might be fun to implement if you have not.
+
+If you don't know Elixir, it will hopefully be an interesting case study and sales pitch.
+
+Anyone with a Claude or Open AI subscription can easily follow along knowing no Elixir.
+
+## Work?
 Applications must do work. This is typical of just about any program that reaches a sufficient size. In order to do that work, sometimes it's desirable to have it happen *elsewhere*. If you have built software, you have probably needed a background job.
 
 In this situation, you are fundamentally using code to run other code. Erlang has a nice format for this, called the Erlang term format. It can store its data in a way it can be passed around and run by other nodes We are going to examine doing this in Elixir with "tools in the shed". We will have a single dependency called `gen_stage` that is built and maintained by the language's creator, Jose Valim.
