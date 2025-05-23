@@ -1,4 +1,12 @@
-# Writing A Job Runner (In Elixir)
+# Writing A Job Runner (In Elixir) (Again) (10 years later)
+Ten years ago, [I wrote a job runner in Elixir after some inspiration from Jose](https://github.com/ybur-yug/genstage_tutorial/blob/master/README.md)
+
+This is an update on that post.
+
+Almost no code has changed, but I wrote it up a lot better, and added some more detail.
+
+I find it wildly amusing it held up this well, and felt like re-sharing with everyone and see if someone with fresh eyes may get some enjoyment or learn a bit from this.
+
 
 ## Who is this for?
 Are you curious?
