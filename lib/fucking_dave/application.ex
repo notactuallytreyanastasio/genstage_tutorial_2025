@@ -14,11 +14,11 @@ defmodule FuckingDave.Application do
       {Phoenix.PubSub, name: FuckingDave.PubSub},
       # Start the Finch HTTP client for sending emails
       {Finch, name: FuckingDave.Finch},
-      # Start a worker by calling: FuckingDave.Worker.start_link(arg)
-      # {FuckingDave.Worker, arg},
-      # Start to serve requests, typically the last entry
+      JobProcessor.Producer,
+      JobProcessor.Consumer,
+
       FuckingDaveWeb.Endpoint
-    ]
+    ] # ++ consumer_children()
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
@@ -33,4 +33,17 @@ defmodule FuckingDave.Application do
     FuckingDaveWeb.Endpoint.config_change(changed, removed)
     :ok
   end
+
+    # Dynamic consumer generation based on system capabilities
+  # defp consumer_children do
+  #   # Create 2 consumers per scheduler for better concurrency
+  #   consumer_count = System.schedulers_online() * 2
+
+  #   for id <- 1..consumer_count do
+  #     Supervisor.child_spec(
+  #       {JobProcessor.Consumer, 0},
+  #       id: :"consumer_#{id}"
+  #     )
+  #   end
+  # end
 end

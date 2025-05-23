@@ -18,6 +18,9 @@ defmodule FuckingDaveWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+
+    # Add the job dashboard
+    live "/jobs", JobDashboardLive
   end
 
   # Other scopes may use custom stacks.

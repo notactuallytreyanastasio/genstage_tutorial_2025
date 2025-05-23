@@ -35,3 +35,4 @@ fucking_dave-*.tar
 npm-debug.log
 /assets/node_modules/
 
+*.sw*
