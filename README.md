@@ -1351,3 +1351,240 @@ end
 Watch the logs to see jobs being processed, failures being retried, and the natural load balancing across multiple consumers.
 
 We've transformed our simple counter example into a production-ready job processing system. The core GenStage concepts remained the same, but now we're processing real work with persistence, error handling, and retry logic.
+
+# Bringing It All Together: From Tutorial to Production
+
+Our tutorial system works well, but production systems need additional sophistication. Here's where you'd take this next:
+
+## Multiple Job Types with Dedicated Queues
+
+Real applications have different types of work with different characteristics:
+
+```elixir
+# High-priority user-facing jobs
+JobQueue.enqueue(:email_queue, Mailer, :send_welcome_email, [user_id])
+
+# Background data processing  
+JobQueue.enqueue(:analytics_queue, Analytics, :process_events, [batch_id])
+
+# Heavy computational work
+JobQueue.enqueue(:ml_queue, ModelTrainer, :train_model, [dataset_id])
+```
+
+Each queue gets its own producer, consumer pool, and configuration:
+
+```elixir
+defmodule JobProcessor.QueueSupervisor do
+  use Supervisor
+
+  def start_link(init_arg) do
+    Supervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
+  end
+
+  def init(_init_arg) do
+    children = [
+      # Email queue - fast, lightweight
+      queue_spec(:email_queue, max_consumers: 5, max_demand: 1),
+      
+      # Analytics queue - batch processing
+      queue_spec(:analytics_queue, max_consumers: 3, max_demand: 100),
+      
+      # ML queue - heavy computation
+      queue_spec(:ml_queue, max_consumers: 1, max_demand: 1)
+    ]
+
+    Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  defp queue_spec(queue_name, opts) do
+    %{
+      id: :"#{queue_name}_supervisor",
+      start: {JobProcessor.QueueManager, :start_link, [queue_name, opts]},
+      type: :supervisor
+    }
+  end
+end
+```
+
+## Dynamic Consumer Scaling
+
+Scale consumers based on queue depth and system load:
+
+```elixir
+defmodule JobProcessor.AutoScaler do
+  use GenServer
+  
+  def init(queue_name) do
+    schedule_check()
+    {:ok, %{queue: queue_name, consumers: [], target_consumers: 2}}
+  end
+
+  def handle_info(:check_scaling, state) do
+    queue_depth = JobQueue.queue_depth(state.queue)
+    current_consumers = length(state.consumers)
+    
+    target = calculate_target_consumers(queue_depth, current_consumers)
+    
+    new_state = 
+      cond do
+        target > current_consumers -> scale_up(state, target - current_consumers)
+        target < current_consumers -> scale_down(state, current_consumers - target)
+        true -> state
+      end
+    
+    schedule_check()
+    {:noreply, new_state}
+  end
+  
+  defp calculate_target_consumers(queue_depth, current) do
+    cond do
+      queue_depth > 1000 -> min(current + 2, 10)
+      queue_depth > 100 -> min(current + 1, 10)
+      queue_depth < 10 -> max(current - 1, 1)
+      true -> current
+    end
+  end
+end
+```
+
+## Worker Registries and Health Monitoring
+
+Track worker health and performance:
+
+```elixir
+defmodule JobProcessor.WorkerRegistry do
+  use GenServer
+  
+  def start_link(_) do
+    GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
+  end
+  
+  def register_worker(queue, pid, metadata \\ %{}) do
+    GenServer.cast(__MODULE__, {:register, queue, pid, metadata})
+  end
+  
+  def get_workers(queue) do
+    GenServer.call(__MODULE__, {:get_workers, queue})
+  end
+  
+  def get_worker_stats do
+    GenServer.call(__MODULE__, :get_stats)
+  end
+
+  def handle_cast({:register, queue, pid, metadata}, state) do
+    Process.monitor(pid)
+    
+    worker_info = %{
+      pid: pid,
+      queue: queue,
+      started_at: DateTime.utc_now(),
+      jobs_processed: 0,
+      last_job_at: nil,
+      metadata: metadata
+    }
+    
+    new_workers = Map.put(state.workers || %{}, pid, worker_info)
+    {:noreply, %{state | workers: new_workers}}
+  end
+
+  def handle_info({:DOWN, _ref, :process, pid, reason}, state) do
+    Logger.warn("Worker #{inspect(pid)} died: #{inspect(reason)}")
+    new_workers = Map.delete(state.workers, pid)
+    {:noreply, %{state | workers: new_workers}}
+  end
+end
+```
+
+## Advanced Error Handling
+
+Circuit breakers for failing job types:
+
+```elixir
+defmodule JobProcessor.CircuitBreaker do
+  use GenServer
+  
+  def should_process_job?(job_type) do
+    GenServer.call(__MODULE__, {:should_process, job_type})
+  end
+  
+  def record_success(job_type) do
+    GenServer.cast(__MODULE__, {:success, job_type})
+  end
+  
+  def record_failure(job_type, error) do
+    GenServer.cast(__MODULE__, {:failure, job_type, error})
+  end
+
+  def handle_call({:should_process, job_type}, _from, state) do
+    circuit_state = Map.get(state.circuits, job_type, :closed)
+    
+    case circuit_state do
+      :closed -> {:reply, true, state}
+      :open -> 
+        if circuit_should_retry?(state, job_type) do
+          {:reply, true, transition_to_half_open(state, job_type)}
+        else
+          {:reply, false, state}
+        end
+      :half_open -> {:reply, true, state}
+    end
+  end
+end
+```
+
+## Dead Letter Queues
+
+Handle permanently failed jobs:
+
+```elixir
+defmodule JobProcessor.DeadLetterQueue do
+  def handle_permanent_failure(job, final_error) do
+    dead_job = %{
+      original_job: job,
+      failed_at: DateTime.utc_now(),
+      final_error: final_error,
+      attempt_history: job.attempt_history || [],
+      forensics: collect_forensics(job)
+    }
+    
+    Repo.insert(%DeadJob{data: dead_job})
+    JobProcessor.Notifications.send_dead_letter_alert(dead_job)
+  end
+  
+  defp collect_forensics(job) do
+    %{
+      system_load: :erlang.statistics(:scheduler_utilization),
+      memory_usage: :erlang.memory(),
+      queue_depths: JobQueue.all_queue_depths(),
+      recent_errors: JobProcessor.ErrorTracker.recent_errors(job.module)
+    }
+  end
+end
+```
+
+## Observability
+
+Comprehensive monitoring with telemetry:
+
+```elixir
+defmodule JobProcessor.Telemetry do
+  def setup do
+    events = [
+      [:job_processor, :job, :start],
+      [:job_processor, :job, :stop], 
+      [:job_processor, :job, :exception],
+      [:job_processor, :queue, :depth]
+    ]
+    
+    :telemetry.attach_many("job-processor-metrics", events, &handle_event/4, nil)
+  end
+  
+  def handle_event([:job_processor, :job, :stop], measurements, metadata, _config) do
+    JobProcessor.Metrics.record_job_duration(metadata.queue, measurements.duration)
+    JobProcessor.Metrics.increment_jobs_completed(metadata.queue)
+    JobProcessor.Metrics.record_job_success(metadata.module, metadata.function)
+  end
+end
+```
+
+GenStage's demand-driven architecture naturally handles backpressure, load balancing, and fault isolation. These production patterns build on that foundation, giving you the tools to run job processing at scale. The same principles that made our tutorial system work - processes, supervision, and message passing - scale to enterprise deployments.
